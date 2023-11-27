@@ -138,9 +138,9 @@ class LM10Report:
             "file_number": cls._get_i_value(response, "1. File Number: E-"),
             "period_begin": cls._get_i_value(response, "From:"),
             "period_through": cls._get_i_value(response, "Through:"),
-            "reporting_employer": cls._section_three(response),
-            "principal_officer": cls._section_four(response),
-            "other_address": cls._section_five(response),
+            "reporting_employer": [cls._section_three(response)],
+            "principal_officer": [cls._section_four(response)],
+            "other_address": [cls._section_five(response)],
             "where_records": cls._where_records(response),
             "type_of_organization": cls._type_of_org(response),
             "signatures": cls._signatures(response),
@@ -176,7 +176,7 @@ class LM10Report:
                     table,
                     "9.c. Position In labor organization or with employer (if an independent labor consultant, so state).",
                 ),
-                "counterparty_contact": cls._parse_section(
+                "counterparty_contact": [cls._parse_section(
                     table,
                     section_label="9.b. Name and address of person with whom or through whom a separate agreement was made or to whom payments were made.",
                     field_labels=(
@@ -187,8 +187,8 @@ class LM10Report:
                         "State:",
                         "ZIP Code + 4:",
                     ),
-                ),
-                "counterparty_organization": cls._parse_section(
+                )],
+                "counterparty_organization": [cls._parse_section(
                     table,
                     section_label="9.d. Name and address of firm or labor organization with whom employed or affiliated.",
                     field_labels=(
@@ -199,7 +199,7 @@ class LM10Report:
                         "State:",
                         "ZIP Code + 4:",
                     ),
-                ),
+                )],
                 "date_of_agreement": cls._section(table, "10.a.")
                 .xpath(".//span[@class='i-value' and normalize-space(text())]/text()")
                 .get(),
