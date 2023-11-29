@@ -176,30 +176,34 @@ class LM10Report:
                     table,
                     "9.c. Position In labor organization or with employer (if an independent labor consultant, so state).",
                 ),
-                "counterparty_contact": [cls._parse_section(
-                    table,
-                    section_label="9.b. Name and address of person with whom or through whom a separate agreement was made or to whom payments were made.",
-                    field_labels=(
-                        "Name:",
-                        "P.O. Box., Bldg., Room No., if any:",
-                        "Street:",
-                        "City:",
-                        "State:",
-                        "ZIP Code + 4:",
-                    ),
-                )],
-                "counterparty_organization": [cls._parse_section(
-                    table,
-                    section_label="9.d. Name and address of firm or labor organization with whom employed or affiliated.",
-                    field_labels=(
-                        "Organization:",
-                        "P.O. Box., Bldg., Room No., if any:",
-                        "Street:",
-                        "City:",
-                        "State:",
-                        "ZIP Code + 4:",
-                    ),
-                )],
+                "counterparty_contact": [
+                    cls._parse_section(
+                        table,
+                        section_label="9.b. Name and address of person with whom or through whom a separate agreement was made or to whom payments were made.",
+                        field_labels=(
+                            "Name:",
+                            "P.O. Box., Bldg., Room No., if any:",
+                            "Street:",
+                            "City:",
+                            "State:",
+                            "ZIP Code + 4:",
+                        ),
+                    )
+                ],
+                "counterparty_organization": [
+                    cls._parse_section(
+                        table,
+                        section_label="9.d. Name and address of firm or labor organization with whom employed or affiliated.",
+                        field_labels=(
+                            "Organization:",
+                            "P.O. Box., Bldg., Room No., if any:",
+                            "Street:",
+                            "City:",
+                            "State:",
+                            "ZIP Code + 4:",
+                        ),
+                    )
+                ],
                 "date_of_agreement": cls._section(table, "10.a.")
                 .xpath(".//span[@class='i-value' and normalize-space(text())]/text()")
                 .get(),
@@ -297,10 +301,14 @@ class LM10Report:
 
         which_address = {}
 
-        for option in ("3", "4", "5"):
+        for option, number in (
+            ("records_hosted_with_reporting_employer", "3"),
+            ("records_hosted_with_principal_officer", "4"),
+            ("records_hosted_at_other_address", "5"),
+        ):
 
             checkbox = section.xpath(
-                f".//div[@class='i-sectionbody' and contains(., 'Address in Item {option}')]"
+                f".//div[@class='i-sectionbody' and contains(., 'Address in Item {number}')]"
                 "//span[@class='i-xcheckbox']"
                 "/text()"
             )
