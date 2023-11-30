@@ -1,2 +1,4 @@
 scrapy
 python-dateutil
+csvs-to-sqlite
+sqlite-utils
