@@ -1,0 +1,61 @@
+# This is a basic workflow to help you get started with Actions
+
+name: Update Database
+
+concurrency: 
+  group: database-build
+
+
+# Controls when the action will run. 
+on:
+  schedule:
+    # * is a special character in YAML so you have to quote this string
+    - cron:  '15 4 * * *'
+  push:
+  pull_request:
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  build:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v2
+      - uses: actions/setup-python@v2
+      - uses: shogo82148/actions-setup-perl@v1        
+        
+      - name: install requirements
+        run: |
+          pip install -r requirements.txt
+          cpanm https://github.com/jsnell/json-to-multicsv/archive/refs/heads/master.zip
+
+      # Runs a single command using the runners shell
+      - name: build database
+        run: |
+          make lm10.db
+
+      - name: setup asset
+        run: |
+          zip lm10.db.zip lm10.db
+
+      - name: release
+        if: github.ref == 'refs/heads/main'
+        uses: WebFreak001/deploy-nightly@v3.0.0
+        with:
+          upload_url: https://uploads.github.com/repos/labordata/lm10/releases/132168957/assets{?name,label}
+          release_id: 132168957
+          asset_path: ./lm10.db.zip # path to archive to upload
+          asset_name: lm10.db.zip # name to upload the release as, use $$ to insert date (YYYYMMDD) and 6 letter commit hash
+          asset_content_type: application/zip # required by GitHub API
+      - name: Commit changes
+        uses: EndBug/add-and-commit@v7
+        with:
+          message: 'update'
+          add: 'reports/full/*'
