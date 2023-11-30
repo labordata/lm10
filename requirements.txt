@@ -2,3 +2,4 @@ scrapy
 python-dateutil
 csvs-to-sqlite
 sqlite-utils
+pandas<2.0
