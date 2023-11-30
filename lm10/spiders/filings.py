@@ -391,8 +391,7 @@ class LM10Report:
     def _section_four(cls, response):
         return cls._parse_section(
             response,
-            section_label="""4. Name and address of President or corresponding principal officer, if
-																	  different from address in Item 3.""",
+            section_label="4. Name and address of President or corresponding principal officer, if different from address in Item 3.",
             field_labels=(
                 "Name:",
                 "P.O. Box., Bldg., Room No., if any:",
@@ -407,8 +406,7 @@ class LM10Report:
     def _section_five(cls, response):
         return cls._parse_section(
             response,
-            section_label="""Any other address where records necessary to verify this report will be
-													available for examination.""",
+            section_label="Any other address where records necessary to verify this report will be available for examination.",
             field_labels=(
                 "Name:",
                 "Title:",
