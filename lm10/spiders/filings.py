@@ -239,10 +239,34 @@ class LM10Report:
                     activity["no_uei_checkbox"] = 'Checked'
                 else:
                     activity["no_uei_checkbox"] = 'Not checked'
+                
+                # When federal_work is "Yes" a new table may appear with different categories of agencies
+                if table.xpath(".//span[@class='i-label' and text()='12b.']/following::tbody").get():
+                    agencies = ""
+                    unlisted_agencies = ""
+                    for row in table.xpath(".//span[@class='i-label' and text()='12b.']/following::tbody/child::tr"):
+                        if row.xpath(".//td[1]/text()"): agencies += row.xpath(".//td[1]/text()").get() + ", "
+                        if row.xpath(".//td[2]/text()"): unlisted_agencies += row.xpath(".//td[2]/text()").get() + ", "
+
+                    if agencies == "":
+                        activity["agencies"] = "None"
+                    else:
+                        activity["agencies"] = agencies.strip(", ")
+
+                    if unlisted_agencies == "":
+                        activity["unlisted_agencies"] = "None"
+                    else:
+                        activity["unlisted_agencies"] = unlisted_agencies.strip(", ")
+                else:
+                    activity["agencies"] = "Field not present"
+                    activity["unlisted_agencies"] = "Field not present"
+
             else:
                 activity["federal_work"] = 'Field not present'
                 activity["uei"] = 'Field not present'
                 activity["no_uei_checkbox"] = 'Field not present'
+                activity["agencies"] = 'Field not present'
+                activity["unlisted_agencies"] = 'Field not present'
 
             expenditure_table = table.xpath(
                 ".//table[@class='addTable' and descendant::span[@class='i-label' and normalize-space(text())='11.a. Date of each payment or expenditure (mm/dd/yyyy).']]"
