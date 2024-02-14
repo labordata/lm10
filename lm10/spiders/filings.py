@@ -219,6 +219,31 @@ class LM10Report:
                 ),
             }
 
+            if table.xpath(".//span[@class='i-label' and text()='12b.']").get():
+                activity["federal_work"] = normalize_space(
+                    table.xpath(
+                        ".//span[@class='i-label' and text()='12b.']"
+                        "/parent::div/parent::div"
+                        "/following-sibling::div"
+                        "//div[@class='i-value']"
+                        "//span[@class='i-xcheckbox']"
+                        "/following-sibling::text()"
+                    ).get()
+                )
+
+                activity["uei"] = normalize_space(
+                    table.xpath(".//div[@class='col-xs-10' and text()[contains(.,'Unique Entity Identifier (UEI):')]]/text()").get()
+                )
+
+                if table.xpath(".//div[@class='col-xs-3' and text()[contains(.,'No UEI')]]//span[@class='i-xcheckbox']").get():
+                    activity["no_uei_checkbox"] = 'Checked'
+                else:
+                    activity["no_uei_checkbox"] = 'Not checked'
+            else:
+                activity["federal_work"] = 'Field not present'
+                activity["uei"] = 'Field not present'
+                activity["no_uei_checkbox"] = 'Field not present'
+
             expenditure_table = table.xpath(
                 ".//table[@class='addTable' and descendant::span[@class='i-label' and normalize-space(text())='11.a. Date of each payment or expenditure (mm/dd/yyyy).']]"
             )
