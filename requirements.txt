@@ -1,5 +1,4 @@
 scrapy
 python-dateutil
-csvs-to-sqlite
+https://github.com/LuighiV/csvs-to-sqlite/archive/refs/heads/main.zip
 sqlite-utils
-pandas<2.0
