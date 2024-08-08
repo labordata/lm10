@@ -166,7 +166,7 @@ form.json : filing.jl
 
 
 filing.json : filing.jl
-	cat $< | jq -s '.[] | del(.detailed_form_data, .file_headers, .file_urls) | .files = .files[0]' | jq -s > $@
+	cat $< | jq -s '.[] | del(.detailed_form_data, .file_headers, .file_urls) | .files = .files[0] | .file_path = .files.path | .file_checksum = .files.checksum | .file_status = .files.status | del(.files)' | jq -s > $@
 
 filer.csv :
 	scrapy crawl filers -L 'WARNING' -O $@
