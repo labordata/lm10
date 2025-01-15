@@ -1,5 +1,5 @@
-import cgi
 import re
+from email.message import Message
 
 from scrapy import Spider
 from scrapy.http import FormRequest, Request
@@ -27,11 +27,11 @@ class LM20(Spider):
 
     def parse(self, response, page):
         """
-                @url https://olmsapps.dol.gov/olpdr/GetLM10FilerListServlet
-                @filers_form
-                @cb_kwargs {"page": 0}
-                @returns requests 501 501
-        3"""
+        @url https://olmsapps.dol.gov/olpdr/GetLM10FilerListServlet
+        @filers_form
+        @cb_kwargs {"page": 0}
+        @returns requests 501 501
+        """
         filers = response.json()["filerList"]
         for filer in filers:
             yield FormRequest(
@@ -109,9 +109,11 @@ class LM20(Spider):
 
         # baffling, sometimes when you request some resources
         # it returns html and sometime it returns a pdf
-        content_type, _ = cgi.parse_header(
-            response.headers.get("Content-Type").decode()
-        )
+
+        m = Message()
+        m["content-type"] = response.headers.get("Content-Type").decode()
+
+        content_type, _ = m.get_params()[0]
 
         keep_trying = True
 
@@ -119,7 +121,9 @@ class LM20(Spider):
 
             form_data = report.parse(response)
 
-            if str(item["srNum"]) == form_data["file_number"] or attempts > 2:
+            if str(item["srNum"]) == form_data[
+                "file_number"
+            ] or attempts > self.settings.getint("MISMATCHED_FILER_RETRY", 2):
                 item["detailed_form_data"] = form_data
                 yield item
                 keep_trying = False
@@ -222,7 +226,10 @@ class LM10Report:
                     table,
                     "Explain fully the circumstances of all payments, including the terms of any oral agreement or understanding pursuant to which they were made :",
                 ),
-                "12b_exists": (table.xpath(".//span[@class='i-label' and text()='12b.']").get() != None),
+                "12b_exists": (
+                    table.xpath(".//span[@class='i-label' and text()='12b.']").get()
+                    != None
+                ),
                 "federal_work": None,
                 "uei": None,
                 "no_uei_checkbox": None,
@@ -495,7 +502,7 @@ class LM10Report:
             result = tree.xpath(nonnormal_i_value_xpath)
 
         return result.get(default="")
-    
+
     @classmethod
     def _get_12b(cls, activity, table):
         result = activity
@@ -512,21 +519,31 @@ class LM10Report:
         )
 
         result["uei"] = normalize_space(
-            table.xpath(".//div[@class='col-xs-10' and text()[contains(.,'Unique Entity Identifier (UEI):')]]/text()").get()
+            table.xpath(
+                ".//div[@class='col-xs-10' and text()[contains(.,'Unique Entity Identifier (UEI):')]]/text()"
+            ).get()
         )
 
-        if table.xpath(".//div[@class='col-xs-3' and text()[contains(.,'No UEI')]]//span[@class='i-xcheckbox']").get():
-            result["no_uei_checkbox"] = 'Checked'
+        if table.xpath(
+            ".//div[@class='col-xs-3' and text()[contains(.,'No UEI')]]//span[@class='i-xcheckbox']"
+        ).get():
+            result["no_uei_checkbox"] = "Checked"
         else:
-            result["no_uei_checkbox"] = 'Not checked'
-        
+            result["no_uei_checkbox"] = "Not checked"
+
         # When federal_work is "Yes" a new table may appear with different categories of agencies
-        if table.xpath(".//span[@class='i-label' and text()='12b.']/following::tbody").get():
+        if table.xpath(
+            ".//span[@class='i-label' and text()='12b.']/following::tbody"
+        ).get():
             agencies = ""
             unlisted_agencies = ""
-            for row in table.xpath(".//span[@class='i-label' and text()='12b.']/following::tbody/child::tr"):
-                if row.xpath(".//td[1]/text()"): agencies += row.xpath(".//td[1]/text()").get() + ", "
-                if row.xpath(".//td[2]/text()"): unlisted_agencies += row.xpath(".//td[2]/text()").get() + ", "
+            for row in table.xpath(
+                ".//span[@class='i-label' and text()='12b.']/following::tbody/child::tr"
+            ):
+                if row.xpath(".//td[1]/text()"):
+                    agencies += row.xpath(".//td[1]/text()").get() + ", "
+                if row.xpath(".//td[2]/text()"):
+                    unlisted_agencies += row.xpath(".//td[2]/text()").get() + ", "
 
             if agencies == "":
                 result["agencies"] = "None"
