@@ -114,7 +114,7 @@ class LM20(Spider):
 
         content_type, _ = m.get_params()[0]
 
-        max_attempts = self.settings.getint("MISMATCHED_FILER_RETRY", 10)
+        max_attempts = self.settings.getint("MISMATCHED_FILER_RETRY", 2)
 
         if content_type == "text/html" and b"Signature" in response.body:
             form_data = report.parse(response)
