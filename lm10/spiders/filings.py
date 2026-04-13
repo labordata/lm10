@@ -123,7 +123,7 @@ class LM20(Spider):
                 item["detailed_form_data"] = form_data
 
             elif attempts >= max_attempts:
-                print(
+                self.logger.warning(
                     f"could not parse report for srNum {item["srNum"]} at "
                     f"{response.request.url}"
                 )
