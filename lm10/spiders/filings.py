@@ -132,6 +132,7 @@ class LM20(Spider):
                 f"{response.request.url}"
             )
             yield item
+            return  # Sad path done
         
         else:
             # Increment attempts and try again
