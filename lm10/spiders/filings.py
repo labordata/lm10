@@ -118,12 +118,21 @@ class LM20(Spider):
 
         if content_type == "text/html" and b"Signature" in response.body:
             form_data = report.parse(response)
-            if str(item["srNum"]) == form_data["file_number"] or attempts >= max_attempts:
+
+            if str(item["srNum"]) == form_data["file_number"]:
                 item["detailed_form_data"] = form_data
-                yield item
-                return  # done
+
+            elif attempts >= max_attempts:
+                print(
+                    f"could not parse report for srNum {item["srNum"]} at "
+                    f"{response.request.url}"
+                )
+
+            yield item
+            return  # done
 
         attempts += 1
+
         if attempts <= max_attempts:
             yield Request(
                 response.request.url,
@@ -131,8 +140,6 @@ class LM20(Spider):
                 callback=self.parse_html_report,
                 dont_filter=True,
             )
-        else:
-            print(f"Droppped item: {item}")
 
 
 class LM10Report:
