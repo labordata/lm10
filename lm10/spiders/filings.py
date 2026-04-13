@@ -116,24 +116,26 @@ class LM20(Spider):
 
         max_attempts = self.settings.getint("MISMATCHED_FILER_RETRY", 2)
 
+        # Check for parsed report
         if content_type == "text/html" and b"Signature" in response.body:
             form_data = report.parse(response)
 
             if str(item["srNum"]) == form_data["file_number"]:
                 item["detailed_form_data"] = form_data
-
-            elif attempts >= max_attempts:
-                self.logger.warning(
-                    f"could not parse report for srNum {item["srNum"]} at "
-                    f"{response.request.url}"
-                )
-
+                yield item
+                return  # Happy path done
+        
+        # Check if we've exhausted attempts
+        if attempts == max_attempts:
+            self.logger.warning(
+                f"could not parse report for srNum {item["srNum"]} at "
+                f"{response.request.url}"
+            )
             yield item
-            return  # done
-
-        attempts += 1
-
-        if attempts <= max_attempts:
+        
+        else:
+            # Increment attempts and try again
+            attempts += 1
             yield Request(
                 response.request.url,
                 cb_kwargs={"item": item, "report": report, "attempts": attempts},
