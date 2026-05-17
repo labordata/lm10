@@ -145,21 +145,21 @@ signature.csv : form.signature.csv
 	    sed -r '1s/[a-z0-9_]+\.//g' > $@
 
 form.activity.counterparty_contact.csv form.activity.counterparty_organization.csv form.activity.csv form.activity.expenditure.csv form.csv form.other_address.csv form.principal_officer.csv form.reportable_activity.csv form.reporting_employer.csv form.signature.csv : form.json
-	json-to-multicsv.pl --file $< \
+	json-to-multicsv --file $< \
             --path /:table:form \
-            --path /*/activity_details/:table:activity \
-            --path /*/activity_details/*/counterparty_contact/:table:counterparty_contact \
-            --path /*/activity_details/*/counterparty_organization/:table:counterparty_organization \
-            --path /*/activity_details/*/expenditures/:table:expenditure \
-            --path /*/other_address/:table:other_address \
-            --path /*/principal_officer/:table:principal_officer \
-            --path /*/reportable_activity/:table:reportable_activity \
-            --path /*/reporting_employer/:table:reporting_employer \
-            --path /*/signatures/:table:signature \
-            --path /*/where_records/:column
+            --path /*/activity_details:table:activity \
+            --path /*/activity_details/*/counterparty_contact:table:counterparty_contact \
+            --path /*/activity_details/*/counterparty_organization:table:counterparty_organization \
+            --path /*/activity_details/*/expenditures:table:expenditure \
+            --path /*/other_address:table:other_address \
+            --path /*/principal_officer:table:principal_officer \
+            --path /*/reportable_activity:table:reportable_activity \
+            --path /*/reporting_employer:table:reporting_employer \
+            --path /*/signatures:table:signature \
+            --path /*/where_records:column
 
 raw_filing.csv : filing.json
-	json-to-multicsv.pl --file filing.json --path /:table:raw_filing
+	json-to-multicsv --file filing.json --path /:table:raw_filing
 
 form.json : filing.jl
 	cat $< |  jq -s '.[] | .detailed_form_data + {rptId, formFiled} | select(.file_number)' | jq -s | jq 'INDEX(.rptId) | with_entries(.value |= del(.rptId))' > $@
