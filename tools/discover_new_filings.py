@@ -1,33 +1,21 @@
-"""Discover filers (srNums) with new LM-10 activity since a known max rptId.
+"""Discover filers (srNums) with new LM-10 activity since lm10.db's
+max LM-10 rptId.
 
-rptIds in the OLMS system are monotonically increasing with receiveDate
-across all form types. Given the last rptId we've processed, we can:
+rptIds in OLMS are monotonically increasing with receiveDate across
+all form types. Bisect `orgReport.do` to find the current max-assigned
+rptId, forward-scan the new window for LM-10 hits, then parse each
+hit's HTML for the filer's srNum. srNums go to stdout, one per line.
 
-  1. Find the current global max-assigned rptId by bisection on
-     `orgReport.do` (probing multiple form types in parallel, since a
-     given rptId is assigned to exactly one form).
-  2. Forward-scan the new window for ones that are LM-10 (PDF or HTML
-     containing "Signature").
-  3. For each electronic hit, parse `1. File Number: E-...` to recover
-     the filer's srNum.
+Paper LM-10s come back as PDFs we can't trivially parse; we skip them
+and let the periodic full backfill pick them up.
 
-Output: srNums, one per line, on stdout. Suitable for:
-    scrapy crawl filings_incremental -a sr_nums_file=sr_nums.txt
-
-Paper LM-10s return PDFs; their srNum isn't trivially extractable
-without OCR, so we emit a warning and rely on the periodic full backfill
-to pick them up. In recent windows we've seen 0 paper hits.
-
-Usage:
-    python tools/discover_new_filings.py --max-known 938562
-    python tools/discover_new_filings.py --max-known-from-db lm10.db
+Usage: python tools/discover_new_filings.py lm10.db
 """
 
 import argparse
 import sqlite3
 import sys
-import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 import urllib3
@@ -37,7 +25,8 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 REPORT_URL = "https://olmsapps.dol.gov/query/orgReport.do?rptId={}&rptForm={}"
 PROBE_FORMS = ("LM2Form", "LM10Form", "LM20Form", "LM30Form", "S1Form")
-STUB_MAX = 10_000  # any text/html body larger than this indicates real content
+STUB_MAX = 10_000
+SCAN_CONCURRENCY = 6
 
 
 def _session():
@@ -52,9 +41,9 @@ def fetch_assigned(session, rpt_id, form):
     ct = r.headers.get("Content-Type", "").split(";")[0].strip()
     if ct == "application/pdf":
         return True
-    if ct == "text/html" and (b"Signature" in r.content or len(r.content) > STUB_MAX):
-        return True
-    return False
+    return ct == "text/html" and (
+        b"Signature" in r.content or len(r.content) > STUB_MAX
+    )
 
 
 def is_assigned(session, rpt_id):
@@ -62,24 +51,17 @@ def is_assigned(session, rpt_id):
         return any(ex.map(lambda f: fetch_assigned(session, rpt_id, f), PROBE_FORMS))
 
 
-def fetch_lm10(session, rpt_id):
+def fetch_lm10_html(session, rpt_id):
+    """Return HTML bytes if rpt_id is an electronic LM-10, else None."""
     r = session.get(REPORT_URL.format(rpt_id, "LM10Form"), timeout=30)
     ct = r.headers.get("Content-Type", "").split(";")[0].strip()
-    if ct == "application/pdf":
-        return "paper", r.content
     if ct == "text/html" and b"Signature" in r.content:
-        return "electronic", r.content
-    return None, r.content
+        return r.content
+    return None
 
 
 def bisect_max_assigned(session, low, initial_step=10_000, max_probes=40):
-    """Find largest assigned rptId > `low`.
-
-    Phase 1 (expansion): probe at `low + step`, doubling step until an
-    unassigned rptId is found. Phase 2: plain bisection on [lo, hi].
-    Assumes the oracle is deterministic — the OLMS `orgReport.do`
-    endpoint is stable enough that a single probe per step is reliable.
-    """
+    """Largest assigned rptId > `low` by geometric expansion + binary search."""
     lo = low
     step = initial_step
     probe = low + step
@@ -93,7 +75,6 @@ def bisect_max_assigned(session, low, initial_step=10_000, max_probes=40):
         else:
             hi = probe
             break
-
     for _ in range(max_probes):
         if hi - lo <= 1:
             break
@@ -106,84 +87,46 @@ def bisect_max_assigned(session, low, initial_step=10_000, max_probes=40):
 
 
 def extract_sr_num(html_bytes):
-    """Pull `1. File Number: E-XXXXX` out of an LM-10 HTML report."""
     sel = Selector(text=html_bytes.decode("utf-8", errors="replace"))
     val = sel.xpath(
         "//span[@class='i-label' and "
         "normalize-space(text())='1. File Number: E-']"
         "/following-sibling::span[@class='i-value'][1]/text()"
     ).get()
-    if val:
-        return int(val.strip())
-    return None
+    return int(val.strip()) if val else None
 
 
-def get_max_known(args):
-    if args.max_known:
-        return args.max_known
-    with sqlite3.connect(args.max_known_from_db) as conn:
+def max_known_lm10(db_path):
+    with sqlite3.connect(db_path) as conn:
         row = conn.execute(
             "SELECT max(rptId) FROM filing WHERE formFiled = 'LM-10'"
         ).fetchone()
-        return row[0]
+    return row[0]
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    g = ap.add_mutually_exclusive_group(required=True)
-    g.add_argument("--max-known", type=int)
-    g.add_argument("--max-known-from-db")
-    ap.add_argument("--concurrency", type=int, default=6)
+    ap.add_argument("db", help="lm10.db (reads max LM-10 rptId)")
     args = ap.parse_args()
 
     sess = _session()
-    max_known = get_max_known(args)
+    max_known = max_known_lm10(args.db)
     print(f"# max known LM-10 rptId: {max_known}", file=sys.stderr)
 
-    t0 = time.perf_counter()
     max_assigned = bisect_max_assigned(sess, max_known)
-    print(f"# bisected max assigned rptId: {max_assigned} "
-          f"({time.perf_counter() - t0:.1f}s)", file=sys.stderr)
-
-    window = list(range(max_known + 1, max_assigned + 1))
-    if not window:
-        print(f"# no new rptIds since {max_known}", file=sys.stderr)
-        return
-
-    print(f"# forward-scanning {len(window)} candidates...", file=sys.stderr)
-    t0 = time.perf_counter()
-    hits = []
-    with ThreadPoolExecutor(max_workers=args.concurrency) as ex:
-        futures = {ex.submit(fetch_lm10, sess, r): r for r in window}
-        for done in as_completed(futures):
-            rpt = futures[done]
-            kind, body = done.result()
-            if kind:
-                hits.append((rpt, kind, body))
-    hits.sort()
-    print(f"# found {len(hits)} new LM-10s in "
-          f"{time.perf_counter() - t0:.1f}s", file=sys.stderr)
+    window = range(max_known + 1, max_assigned + 1)
 
     sr_nums = set()
-    paper_unresolved = 0
-    for rpt, kind, body in hits:
-        if kind == "paper":
-            paper_unresolved += 1
-            print(f"# paper LM-10 at rpt={rpt} — srNum unresolved "
-                  f"(will be caught by next full backfill)", file=sys.stderr)
-            continue
-        sr = extract_sr_num(body)
-        if sr is None:
-            print(f"# could not extract srNum from rpt={rpt}", file=sys.stderr)
-            continue
-        sr_nums.add(sr)
+    with ThreadPoolExecutor(max_workers=SCAN_CONCURRENCY) as ex:
+        for body in ex.map(lambda r: fetch_lm10_html(sess, r), window):
+            if body is None:
+                continue
+            sr = extract_sr_num(body)
+            if sr is not None:
+                sr_nums.add(sr)
 
-    print(f"# {len(sr_nums)} unique filers with new activity",
-          file=sys.stderr)
-    if paper_unresolved:
-        print(f"# {paper_unresolved} paper filings deferred",
-              file=sys.stderr)
-
+    print(f"# {len(sr_nums)} filers with new activity in "
+          f"window {max_known + 1}..{max_assigned}", file=sys.stderr)
     for sr in sorted(sr_nums):
         print(sr)
 

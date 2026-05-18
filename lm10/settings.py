@@ -103,3 +103,10 @@ AUTOTHROTTLE_MAX_DELAY = 30.0
 AUTOTHROTTLE_TARGET_CONCURRENCY = 4.0
 CONCURRENT_REQUESTS_PER_DOMAIN = 8
 RETRY_HTTP_CODES = [500, 502, 503, 504, 522, 524, 408, 429, 403]
+
+# Cache responses so the two incremental spiders can share the slow
+# GetLM10FilerDetailServlet detail responses. Harmless for full crawls
+# (every URL is unique anyway).
+HTTPCACHE_ENABLED = True
+HTTPCACHE_EXPIRATION_SECS = 3600
+HTTPCACHE_DIR = ".scrapy/httpcache"
