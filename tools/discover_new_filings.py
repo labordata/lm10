@@ -3,8 +3,8 @@
 rptIds in the OLMS system are monotonically increasing with receiveDate
 across all form types. Given the last rptId we've processed, we can:
 
-  1. Find the current global max-assigned rptId via Bayesian-style
-     bisection on `orgReport.do` (probing multiple form types, since a
+  1. Find the current global max-assigned rptId by bisection on
+     `orgReport.do` (probing multiple form types in parallel, since a
      given rptId is assigned to exactly one form).
   2. Forward-scan the new window for ones that are LM-10 (PDF or HTML
      containing "Signature").
@@ -21,16 +21,13 @@ to pick them up. In recent windows we've seen 0 paper hits.
 Usage:
     python tools/discover_new_filings.py --max-known 938562
     python tools/discover_new_filings.py --max-known-from-db lm10.db
-    python tools/discover_new_filings.py  # defaults to labordata.bunkum.us
 """
 
 import argparse
-import math
 import sqlite3
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from math import erf, sqrt
 
 import requests
 import urllib3
@@ -75,10 +72,16 @@ def fetch_lm10(session, rpt_id):
     return None, r.content
 
 
-def bayesian_bisect(session, low, prior_mean, prior_sigma, max_probes=20):
-    """Find largest assigned rptId > `low` using log-normal prior on growth."""
+def bisect_max_assigned(session, low, initial_step=10_000, max_probes=40):
+    """Find largest assigned rptId > `low`.
+
+    Phase 1 (expansion): probe at `low + step`, doubling step until an
+    unassigned rptId is found. Phase 2: plain bisection on [lo, hi].
+    Assumes the oracle is deterministic — the OLMS `orgReport.do`
+    endpoint is stable enough that a single probe per step is reliable.
+    """
     lo = low
-    step = max(prior_mean, 100)
+    step = initial_step
     probe = low + step
     while True:
         if is_assigned(session, probe):
@@ -91,24 +94,10 @@ def bayesian_bisect(session, low, prior_mean, prior_sigma, max_probes=20):
             hi = probe
             break
 
-    mu = math.log(prior_mean)
-    sigma = math.log(1 + prior_sigma / prior_mean)
-
-    def cdf(log_o):
-        return 0.5 * (1 + erf((log_o - mu) / (sigma * sqrt(2))))
-
     for _ in range(max_probes):
         if hi - lo <= 1:
             break
-        oa, ob = max(lo - low, 1), hi - low
-        pa, pb = cdf(math.log(oa)), cdf(math.log(ob))
-        target = (pa + pb) / 2
-        l, r = math.log(oa), math.log(ob)
-        for _ in range(40):
-            m = (l + r) / 2
-            (l, r) = (m, r) if cdf(m) < target else (l, m)
-        mid = low + int(math.exp((l + r) / 2))
-        mid = max(lo + 1, min(hi - 1, mid))
+        mid = (lo + hi) // 2
         if is_assigned(session, mid):
             lo = mid
         else:
@@ -132,26 +121,18 @@ def extract_sr_num(html_bytes):
 def get_max_known(args):
     if args.max_known:
         return args.max_known
-    if args.max_known_from_db:
-        with sqlite3.connect(args.max_known_from_db) as conn:
-            row = conn.execute(
-                "SELECT max(rptId) FROM filing WHERE formFiled = 'LM-10'"
-            ).fetchone()
-            return row[0]
-    sess = _session()
-    q = (
-        "https://labordata.bunkum.us/lm10/-/query.json?"
-        "sql=select+max(rptId)+as+m+from+filing&_shape=array"
-    )
-    return sess.get(q, timeout=30).json()[0]["m"]
+    with sqlite3.connect(args.max_known_from_db) as conn:
+        row = conn.execute(
+            "SELECT max(rptId) FROM filing WHERE formFiled = 'LM-10'"
+        ).fetchone()
+        return row[0]
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--max-known", type=int)
-    ap.add_argument("--max-known-from-db")
-    ap.add_argument("--prior-mean", type=int, default=10_000)
-    ap.add_argument("--prior-sigma", type=int, default=15_000)
+    g = ap.add_mutually_exclusive_group(required=True)
+    g.add_argument("--max-known", type=int)
+    g.add_argument("--max-known-from-db")
     ap.add_argument("--concurrency", type=int, default=6)
     args = ap.parse_args()
 
@@ -160,7 +141,7 @@ def main():
     print(f"# max known LM-10 rptId: {max_known}", file=sys.stderr)
 
     t0 = time.perf_counter()
-    max_assigned = bayesian_bisect(sess, max_known, args.prior_mean, args.prior_sigma)
+    max_assigned = bisect_max_assigned(sess, max_known)
     print(f"# bisected max assigned rptId: {max_assigned} "
           f"({time.perf_counter() - t0:.1f}s)", file=sys.stderr)
 

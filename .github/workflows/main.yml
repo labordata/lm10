@@ -34,26 +34,12 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      - name: download previous artifacts
-        # Pull the prior release zip so we can extend it incrementally.
-        # Failure is fine — the next step falls back to a full crawl.
-        continue-on-error: true
-        run: |
-          curl -sL -o prev.zip "https://github.com/labordata/lm10/releases/download/nightly/lm10.db.zip"
-          unzip -o prev.zip filing.jl organization.csv lm10.db || true
-          rm -f prev.zip
-
       - name: build database
-        run: |
-          # Incremental path: append new filings to cached filing.jl /
-          # organization.csv, then rerun the existing Makefile. Falls
-          # back to a full crawl if no cumulative inputs are present
-          # (exit code 2) or anything else goes wrong.
-          bash tools/incremental_update.sh || make lm10.db
+        run: make -f update.mk update
 
       - name: setup asset
         run: |
-          zip lm10.db.zip lm10.db filing.jl organization.csv filer.csv
+          zip lm10.db.zip lm10.db
 
       - name: release
         if: github.ref == 'refs/heads/main'
