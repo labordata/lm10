@@ -6,10 +6,6 @@
 # always-fresh (depend on FORCE). Intermediate files land in the
 # working dir (all gitignored).
 #
-# Targets are ordered finals-on-top: entry points and aggregates first,
-# the per-table merges in topological order (leaves before roots), and
-# the CSV production pipeline last (consumers before producers).
-#
 # Usage: make -f update.mk
 
 PRIOR_DB_URL ?= https://github.com/labordata/lm10/releases/download/nightly/lm10.db.zip
