@@ -130,16 +130,16 @@ class LM20(Spider):
                 item["detailed_form_data"] = form_data
                 yield item
                 return  # Happy path done
-        
+
         # Check if we've exhausted attempts
         if attempts == max_attempts:
             self.logger.warning(
-                f"could not parse report for srNum {item["srNum"]} at "
+                f"could not parse report for srNum {item['srNum']} at "
                 f"{response.request.url}"
             )
             yield item
             return  # Sad path done
-        
+
         else:
             # Increment attempts and try again
             attempts += 1
@@ -153,14 +153,15 @@ class LM20(Spider):
 
 class IncrementalFilings(LM20):
     """Crawl filings for a specific list of filers (by srNum), skipping the
-    list endpoint entirely. Inputs come from `tools/discover_new_filings.py`,
+    list endpoint entirely. Inputs come from `scripts/discover_new_filings.py`,
     which forward-probes the rptId space to find new filings since the last
     sync."""
 
     name = "filings_incremental"
 
-    def __init__(self, sr_nums=None, sr_nums_file=None, max_known_rpt_id=None,
-                 *args, **kwargs):
+    def __init__(
+        self, sr_nums=None, sr_nums_file=None, max_known_rpt_id=None, *args, **kwargs
+    ):
         super().__init__(*args, **kwargs)
         nums = []
         if sr_nums:
@@ -181,7 +182,10 @@ class IncrementalFilings(LM20):
 
     def _iter_filings(self, response):
         for filing in response.json()["detail"]:
-            if self.max_known_rpt_id is not None and filing["rptId"] <= self.max_known_rpt_id:
+            if (
+                self.max_known_rpt_id is not None
+                and filing["rptId"] <= self.max_known_rpt_id
+            ):
                 continue
             yield filing
 
@@ -342,9 +346,7 @@ class LM10Report:
             ).get()
 
             n_responses = question.xpath(
-                ".//div[@class='col-xs-2  notop']"
-                "//span[@class='i-xcheckbox']"
-                "/text()"
+                ".//div[@class='col-xs-2  notop']//span[@class='i-xcheckbox']/text()"
             ).get()
 
             results.append(
@@ -375,7 +377,6 @@ class LM10Report:
             ("records_hosted_with_principal_officer", "4"),
             ("records_hosted_at_other_address", "5"),
         ):
-
             checkbox = section.xpath(
                 f".//div[@class='i-sectionbody' and contains(., 'Address in Item {number}')]"
                 "//span[@class='i-xcheckbox']"

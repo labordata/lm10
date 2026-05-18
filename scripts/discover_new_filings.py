@@ -9,7 +9,7 @@ hit's HTML for the filer's srNum. srNums go to stdout, one per line.
 Paper LM-10s come back as PDFs we can't trivially parse; we skip them
 and let the periodic full backfill pick them up.
 
-Usage: python tools/discover_new_filings.py lm10.db
+Usage: python scripts/discover_new_filings.py lm10.db
 """
 
 import argparse
@@ -125,8 +125,11 @@ def main():
             if sr is not None:
                 sr_nums.add(sr)
 
-    print(f"# {len(sr_nums)} filers with new activity in "
-          f"window {max_known + 1}..{max_assigned}", file=sys.stderr)
+    print(
+        f"# {len(sr_nums)} filers with new activity in "
+        f"window {max_known + 1}..{max_assigned}",
+        file=sys.stderr,
+    )
     for sr in sorted(sr_nums):
         print(sr)
 

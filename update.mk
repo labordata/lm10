@@ -6,10 +6,13 @@
 # always-fresh (depend on FORCE). Intermediate files land in the
 # working dir (all gitignored).
 #
+# Targets are ordered finals-on-top: entry points and aggregates first,
+# the per-table merges in topological order (leaves before roots), and
+# the CSV production pipeline last (consumers before producers).
+#
 # Usage: make -f update.mk
 
 PRIOR_DB_URL ?= https://github.com/labordata/lm10/releases/download/nightly/lm10.db.zip
-SQLITE3 := sqlite3
 
 .DELETE_ON_ERROR:
 
@@ -28,6 +31,10 @@ FORM_CSVS := form.csv form.activity.csv \
         update_activity update_counterparty_contact \
         update_counterparty_organization update_expenditure
 
+# ============================================================================
+# Entry
+# ============================================================================
+
 # Build the always-fresh inputs first; if sr_nums is non-empty,
 # recursively run the full per-table cascade. Filer always merges.
 update: lm10.db update_filer sr_nums.txt
@@ -41,6 +48,18 @@ update: lm10.db update_filer sr_nums.txt
 	fi
 	@$(MAKE) -f update.mk fk-check
 
+# ============================================================================
+# Validation helpers
+# ============================================================================
+
+fk-check:
+	@violations=$$(sqlite3 lm10.db "PRAGMA foreign_key_check;"); \
+	if [ -n "$$violations" ]; then \
+	    echo "fk-check: violations in lm10.db:" >&2; \
+	    echo "$$violations" >&2; exit 1; \
+	fi
+	@echo "fk-check: lm10.db has no FK violations"
+
 # Date columns: re-parse via sqlite-utils. Idempotent on already-ISO
 # values, so safe to run unscoped after each merge.
 polish_db:
@@ -53,101 +72,55 @@ polish_db:
 	sqlite-utils convert lm10.db organization promiseDate \
 	    'r.parsedate(value) if value.lower() not in {"not available", "none"} else None'
 
-fk-check:
-	@violations=$$($(SQLITE3) lm10.db "PRAGMA foreign_key_check;"); \
-	if [ -n "$$violations" ]; then \
-	    echo "fk-check: violations in lm10.db:" >&2; \
-	    echo "$$violations" >&2; exit 1; \
-	fi
-	@echo "fk-check: lm10.db has no FK violations"
-
-# --- per-table merges, ordered to satisfy FKs ---
-
-update_filer: filer.csv | lm10.db
-	cat $< | $(SQLITE3) lm10.db -init scripts/filer.sql -bail
-
-update_filing: filing.csv update_filer
-	cat $< | $(SQLITE3) lm10.db -init scripts/filing.sql -bail
-
-update_lm10: lm10.csv update_filing
-	cat $< | $(SQLITE3) lm10.db -init scripts/lm10.sql -bail
-
-update_organization: organization.csv update_filing
-	cat $< | $(SQLITE3) lm10.db -init scripts/organization.sql -bail
-
-update_signature: signature.csv update_filing
-	cat $< | $(SQLITE3) lm10.db -init scripts/signature.sql -bail
-
-update_other_address: other_address.csv update_filing
-	cat $< | $(SQLITE3) lm10.db -init scripts/other_address.sql -bail
-
-update_principal_officer: principal_officer.csv update_filing
-	cat $< | $(SQLITE3) lm10.db -init scripts/principal_officer.sql -bail
-
-update_reportable_activity: reportable_activity.csv update_filing
-	cat $< | $(SQLITE3) lm10.db -init scripts/reportable_activity.sql -bail
-
-update_reporting_employer: reporting_employer.csv update_filing
-	cat $< | $(SQLITE3) lm10.db -init scripts/reporting_employer.sql -bail
-
-update_activity: activity.csv update_filing
-	cat $< | $(SQLITE3) lm10.db -init scripts/activity.sql -bail
+# ============================================================================
+# Per-table merges (topological, leaves before roots)
+# ============================================================================
 
 update_counterparty_contact: counterparty_contact.csv update_activity
-	cat $< | $(SQLITE3) lm10.db -init scripts/counterparty_contact.sql -bail
+	cat $< | sqlite3 lm10.db -init scripts/counterparty_contact.sql -bail
 
 update_counterparty_organization: counterparty_organization.csv update_activity
-	cat $< | $(SQLITE3) lm10.db -init scripts/counterparty_organization.sql -bail
+	cat $< | sqlite3 lm10.db -init scripts/counterparty_organization.sql -bail
 
 update_expenditure: expenditure.csv update_activity
-	cat $< | $(SQLITE3) lm10.db -init scripts/expenditure.sql -bail
+	cat $< | sqlite3 lm10.db -init scripts/expenditure.sql -bail
 
-# --- CSV production (unchanged) ---
+update_activity: activity.csv update_filing
+	cat $< | sqlite3 lm10.db -init scripts/activity.sql -bail
 
-lm10.db:
-	curl -fsSL -o prev.zip $(PRIOR_DB_URL)
-	unzip -o prev.zip lm10.db
-	rm -f prev.zip
+update_lm10: lm10.csv update_filing
+	cat $< | sqlite3 lm10.db -init scripts/lm10.sql -bail
 
-filer.csv: FORCE
-	scrapy crawl filers -L WARNING -O $@
+update_organization: organization.csv update_filing
+	cat $< | sqlite3 lm10.db -init scripts/organization.sql -bail
 
-sr_nums.txt: FORCE lm10.db
-	python tools/discover_new_filings.py lm10.db > $@
+update_signature: signature.csv update_filing
+	cat $< | sqlite3 lm10.db -init scripts/signature.sql -bail
 
-FORCE:
+update_other_address: other_address.csv update_filing
+	cat $< | sqlite3 lm10.db -init scripts/other_address.sql -bail
 
-filing.jl: sr_nums.txt
-	scrapy crawl filings_incremental -L WARNING -a sr_nums_file=$< -O $@
+update_principal_officer: principal_officer.csv update_filing
+	cat $< | sqlite3 lm10.db -init scripts/principal_officer.sql -bail
 
-organization.csv: sr_nums.txt
-	scrapy crawl organizations_incremental -L WARNING -a sr_nums_file=$< -O $@
+update_reportable_activity: reportable_activity.csv update_filing
+	cat $< | sqlite3 lm10.db -init scripts/reportable_activity.sql -bail
 
-form.json: filing.jl
-	jq -s '.[] | .detailed_form_data + {rptId, formFiled} | select(.file_number)' $< \
-	    | jq -s \
-	    | jq 'INDEX(.rptId) | with_entries(.value |= del(.rptId))' > $@
+update_reporting_employer: reporting_employer.csv update_filing
+	cat $< | sqlite3 lm10.db -init scripts/reporting_employer.sql -bail
 
-filing.json: filing.jl
-	jq -s '.[] | del(.detailed_form_data, .file_headers, .file_urls) | .files = .files[0] | .file_path = .files.path | .file_checksum = .files.checksum | .file_status = .files.status | del(.files)' $< \
-	    | jq -s > $@
+update_filing: filing.csv update_filer
+	cat $< | sqlite3 lm10.db -init scripts/filing.sql -bail
 
-$(FORM_CSVS) &: form.json
-	json-to-multicsv --file form.json \
-	    --path /:table:form \
-	    --path /*/activity_details:table:activity \
-	    --path /*/activity_details/*/counterparty_contact:table:counterparty_contact \
-	    --path /*/activity_details/*/counterparty_organization:table:counterparty_organization \
-	    --path /*/activity_details/*/expenditures:table:expenditure \
-	    --path /*/other_address:table:other_address \
-	    --path /*/principal_officer:table:principal_officer \
-	    --path /*/reportable_activity:table:reportable_activity \
-	    --path /*/reporting_employer:table:reporting_employer \
-	    --path /*/signatures:table:signature \
-	    --path /*/where_records:column
+update_filer: filer.csv | lm10.db
+	cat $< | sqlite3 lm10.db -init scripts/filer.sql -bail
 
-raw_filing.csv: filing.json
-	json-to-multicsv --file filing.json --path /:table:raw_filing
+# ============================================================================
+# CSV pipeline (consumers before producers)
+# ============================================================================
+
+# Per-table CSVs (consumed by update_<table>): sed renames from the
+# json-to-multicsv output.
 
 filing.csv: raw_filing.csv
 	sed -r '1s/[a-z0-9_]+\.//g' $< > $@
@@ -178,5 +151,61 @@ expenditure.csv: form.activity.expenditure.csv
 	    | sed '1s/form\._key/rptId/g' \
 	    | sed -r '1s/[a-z0-9_]+\.//g' > $@
 
+# Pattern rule for simple per-rptId children: form.X.csv → X.csv.
+# (signature, other_address, principal_officer, reportable_activity,
+#  reporting_employer.) Explicit rules above take precedence for tables
+# that need more renames.
 %.csv: form.%.csv
 	sed '1s/form\._key/rptId/g' $< | sed -r '1s/[a-z0-9_]+\.//g' > $@
+
+# json-to-multicsv emits all FORM_CSVS from one invocation.
+raw_filing.csv: filing.json
+	json-to-multicsv --file filing.json --path /:table:raw_filing
+
+$(FORM_CSVS) &: form.json
+	json-to-multicsv --file form.json \
+	    --path /:table:form \
+	    --path /*/activity_details:table:activity \
+	    --path /*/activity_details/*/counterparty_contact:table:counterparty_contact \
+	    --path /*/activity_details/*/counterparty_organization:table:counterparty_organization \
+	    --path /*/activity_details/*/expenditures:table:expenditure \
+	    --path /*/other_address:table:other_address \
+	    --path /*/principal_officer:table:principal_officer \
+	    --path /*/reportable_activity:table:reportable_activity \
+	    --path /*/reporting_employer:table:reporting_employer \
+	    --path /*/signatures:table:signature \
+	    --path /*/where_records:column
+
+# jq fan-out from the spider's filing.jl.
+filing.json: filing.jl
+	jq -s '.[] | del(.detailed_form_data, .file_headers, .file_urls) | .files = .files[0] | .file_path = .files.path | .file_checksum = .files.checksum | .file_status = .files.status | del(.files)' $< \
+	    | jq -s > $@
+
+form.json: filing.jl
+	jq -s '.[] | .detailed_form_data + {rptId, formFiled} | select(.file_number)' $< \
+	    | jq -s \
+	    | jq 'INDEX(.rptId) | with_entries(.value |= del(.rptId))' > $@
+
+# Spider outputs (only invoked when sr_nums.txt is non-empty; the
+# `update` recipe guards this).
+filing.jl: sr_nums.txt
+	scrapy crawl filings_incremental -L WARNING -a sr_nums_file=$< -O $@
+
+organization.csv: sr_nums.txt
+	scrapy crawl organizations_incremental -L WARNING -a sr_nums_file=$< -O $@
+
+# Always-fresh inputs.
+sr_nums.txt: FORCE lm10.db
+	python scripts/discover_new_filings.py lm10.db > $@
+
+filer.csv: FORCE
+	scrapy crawl filers -L WARNING -O $@
+
+# Bootstrap. Fetch the prior nightly if no local lm10.db; fails fast
+# on download error (recovery is a human-triggered `make lm10.db`).
+lm10.db:
+	curl -fsSL -o prev.zip $(PRIOR_DB_URL)
+	unzip -o prev.zip lm10.db
+	rm -f prev.zip
+
+FORCE:

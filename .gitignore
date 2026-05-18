@@ -26,3 +26,4 @@ new_filing.jl
 new_organization.csv
 sr_nums.txt
 reports/
+.scrapy/

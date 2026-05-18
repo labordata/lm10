@@ -10,7 +10,12 @@ class Organizations(Spider):
     # detail shape (28 fields), but the table only stores six.
     custom_settings = {
         "FEED_EXPORT_FIELDS": [
-            "promiseDate", "oID", "rptId", "empLabOrg", "city", "state",
+            "promiseDate",
+            "oID",
+            "rptId",
+            "empLabOrg",
+            "city",
+            "state",
         ],
     }
 
@@ -87,8 +92,9 @@ class IncrementalOrganizations(Organizations):
 
     name = "organizations_incremental"
 
-    def __init__(self, sr_nums=None, sr_nums_file=None, max_known_rpt_id=None,
-                 *args, **kwargs):
+    def __init__(
+        self, sr_nums=None, sr_nums_file=None, max_known_rpt_id=None, *args, **kwargs
+    ):
         super().__init__(*args, **kwargs)
         nums = []
         if sr_nums:
@@ -109,6 +115,9 @@ class IncrementalOrganizations(Organizations):
 
     def _iter_filings(self, response):
         for filing in response.json()["detail"]:
-            if self.max_known_rpt_id is not None and filing["rptId"] <= self.max_known_rpt_id:
+            if (
+                self.max_known_rpt_id is not None
+                and filing["rptId"] <= self.max_known_rpt_id
+            ):
                 continue
             yield filing
