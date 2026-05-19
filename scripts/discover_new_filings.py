@@ -25,7 +25,6 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 REPORT_URL = "https://olmsapps.dol.gov/query/orgReport.do?rptId={}&rptForm={}"
 PROBE_FORMS = ("LM2Form", "LM10Form", "LM20Form", "LM30Form", "S1Form")
-STUB_MAX = 10_000
 SCAN_CONCURRENCY = 6
 
 
@@ -37,13 +36,18 @@ def _session():
 
 
 def fetch_assigned(session, rpt_id, form):
+    """True if `rpt_id` is assigned to `form`.
+
+    Real form pages embed an Angular app (`ng-app="LM20App"` etc.) and
+    fetch their data asynchronously. The OLMS "not found" page is a
+    plain HTML stub without ng-app. Body size is unreliable as a
+    discriminator (LM-20 form templates are ~8.5K, the stub is ~8.2K).
+    """
     r = session.get(REPORT_URL.format(rpt_id, form), timeout=30)
     ct = r.headers.get("Content-Type", "").split(";")[0].strip()
     if ct == "application/pdf":
         return True
-    return ct == "text/html" and (
-        b"Signature" in r.content or len(r.content) > STUB_MAX
-    )
+    return ct == "text/html" and b"ng-app=" in r.content
 
 
 def is_assigned(session, rpt_id):
