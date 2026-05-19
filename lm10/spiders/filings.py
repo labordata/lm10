@@ -15,15 +15,13 @@ class LM20(Spider):
         }
     }
 
-    def start_requests(self):
-        return [
-            FormRequest(
-                "https://olmsapps.dol.gov/olpdr/GetLM10FilerListServlet",
-                formdata={"clearCache": "F", "page": "1"},
-                cb_kwargs={"page": 1},
-                callback=self.parse,
-            )
-        ]
+    async def start(self):
+        yield FormRequest(
+            "https://olmsapps.dol.gov/olpdr/GetLM10FilerListServlet",
+            formdata={"clearCache": "F", "page": "1"},
+            cb_kwargs={"page": 1},
+            callback=self.parse,
+        )
 
     def parse(self, response, page):
         """
@@ -176,7 +174,7 @@ class IncrementalFilings(LM20):
         self.sr_nums = sorted({int(n) for n in nums if n.strip()})
         self.max_known_rpt_id = int(max_known_rpt_id) if max_known_rpt_id else None
 
-    def start_requests(self):
+    async def start(self):
         for sr in self.sr_nums:
             yield self._detail_request(sr)
 

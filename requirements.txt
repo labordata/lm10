@@ -1,4 +1,4 @@
-scrapy
+scrapy>=2.13
 python-dateutil
 https://github.com/LuighiV/csvs-to-sqlite/archive/refs/heads/main.zip
 sqlite-utils
