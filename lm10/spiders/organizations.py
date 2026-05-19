@@ -1,5 +1,6 @@
 from scrapy import Spider
-from scrapy.http import FormRequest
+
+from lm10._http import form_request
 
 
 class Organizations(Spider):
@@ -20,7 +21,7 @@ class Organizations(Spider):
     }
 
     async def start(self):
-        yield FormRequest(
+        yield form_request(
             "https://olmsapps.dol.gov/olpdr/GetLM10FilerListServlet",
             formdata={"clearCache": "F", "page": "1"},
             cb_kwargs={"page": 1},
@@ -40,7 +41,7 @@ class Organizations(Spider):
             yield self._detail_request(filer["srNum"])
         if len(filers) == 500:
             page += 1
-            yield FormRequest(
+            yield form_request(
                 "https://olmsapps.dol.gov/olpdr/GetLM10FilerListServlet",
                 formdata={"clearCache": "F", "page": str(page)},
                 cb_kwargs={"page": page},
@@ -48,7 +49,7 @@ class Organizations(Spider):
             )
 
     def _detail_request(self, sr_num):
-        return FormRequest(
+        return form_request(
             "https://olmsapps.dol.gov/olpdr/GetLM10FilerDetailServlet",
             formdata={"srNum": "C-" + str(sr_num)},
             callback=self.parse_filings,
@@ -65,7 +66,7 @@ class Organizations(Spider):
         """
 
         for filing in self._iter_filings(response):
-            yield FormRequest(
+            yield form_request(
                 "https://olmsapps.dol.gov/olpdr/GetAdditionalEmpsLM10Servlet",
                 formdata={"rptId": str(filing["rptId"])},
                 callback=self.parse_organization,

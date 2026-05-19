@@ -2,7 +2,9 @@ import re
 from email.message import Message
 
 from scrapy import Spider
-from scrapy.http import FormRequest, Request
+from scrapy.http import Request
+
+from lm10._http import form_request
 
 
 class LM20(Spider):
@@ -16,7 +18,7 @@ class LM20(Spider):
     }
 
     async def start(self):
-        yield FormRequest(
+        yield form_request(
             "https://olmsapps.dol.gov/olpdr/GetLM10FilerListServlet",
             formdata={"clearCache": "F", "page": "1"},
             cb_kwargs={"page": 1},
@@ -35,7 +37,7 @@ class LM20(Spider):
             yield self._detail_request(filer["srNum"])
         if len(filers) == 500:
             page += 1
-            yield FormRequest(
+            yield form_request(
                 "https://olmsapps.dol.gov/olpdr/GetLM10FilerListServlet",
                 formdata={"clearCache": "F", "page": str(page)},
                 cb_kwargs={"page": page},
@@ -43,7 +45,7 @@ class LM20(Spider):
             )
 
     def _detail_request(self, sr_num):
-        return FormRequest(
+        return form_request(
             "https://olmsapps.dol.gov/olpdr/GetLM10FilerDetailServlet",
             formdata={"srNum": "C-" + str(sr_num)},
             callback=self.parse_filings,
