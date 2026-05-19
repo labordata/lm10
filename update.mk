@@ -33,14 +33,15 @@ FORM_CSVS := form.csv form.activity.csv \
 
 # Build the always-fresh inputs first; if sr_nums is non-empty,
 # recursively run the full per-table cascade. Filer always merges.
+# `-o sr_nums.txt` tells the sub-make not to re-run discovery; otherwise
+# the FORCE dep on sr_nums.txt would trigger another bisection there.
 update: lm10.db update_filer sr_nums.txt
 	@if [ -s sr_nums.txt ]; then \
-	    $(MAKE) -f update.mk update_lm10 update_organization \
+	    $(MAKE) -o sr_nums.txt -f update.mk update_lm10 update_organization \
 	        update_signature update_other_address update_principal_officer \
 	        update_reportable_activity update_reporting_employer \
 	        update_counterparty_contact update_counterparty_organization \
-	        update_expenditure; \
-	    $(MAKE) -f update.mk polish_db; \
+	        update_expenditure polish_db; \
 	fi
 	@$(MAKE) -f update.mk fk-check
 
