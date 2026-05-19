@@ -109,7 +109,11 @@ update_filing: filing.csv update_filer
 	cat $< | sqlite3 lm10.db -init scripts/filing.sql -bail
 
 update_filer: filer.csv | lm10.db
-	cat $< | sqlite3 lm10.db -init scripts/filer.sql -bail
+	@if [ "$$(wc -l < $<)" -gt 1 ]; then \
+	    cat $< | sqlite3 lm10.db -init scripts/filer.sql -bail; \
+	else \
+	    echo "update_filer: $< empty (spider produced no rows); keeping existing filer table" >&2; \
+	fi
 
 # ============================================================================
 # CSV pipeline (consumers before producers)
@@ -195,7 +199,7 @@ sr_nums.txt: FORCE lm10.db
 	python scripts/discover_new_filings.py lm10.db > $@
 
 filer.csv: FORCE
-	scrapy crawl filers -L WARNING -O $@
+	scrapy crawl filers -L INFO -O $@
 
 # Bootstrap. Fetch the prior nightly if no local lm10.db; fails fast
 # on download error (recovery is a human-triggered `make lm10.db`).
