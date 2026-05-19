@@ -57,7 +57,6 @@ class AttachmentHeaders:
 
         adapter["file_headers"] = {}
         for file_url in adapter["file_urls"]:
-
             request = Request(file_url, method="HEAD")
             response = await spider.crawler.engine.download(request)
 
