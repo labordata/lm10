@@ -38,7 +38,7 @@ FORM_CSVS := form.csv form.activity.csv \
 #   sr_nums.txt — FORCE'd, would trigger another bisection
 #   update_filer, update_filing — phony, transitive prereqs of every
 #     update_X in the cascade
-update: lm10.db update_filer sr_nums.txt
+update: lm10.db update_filer update_filing sr_nums.txt
 	@if [ -s sr_nums.txt ]; then \
 	    $(MAKE) -o sr_nums.txt -o update_filer -o update_filing \
 	        -f update.mk update_lm10 update_organization \
@@ -54,10 +54,14 @@ update: lm10.db update_filer sr_nums.txt
 # ============================================================================
 
 fk-check:
-	@violations=$$(sqlite3 lm10.db "PRAGMA foreign_key_check;"); \
+	@violations=$$(sqlite3 lm10.db "PRAGMA foreign_key_check;" 2>&1); \
 	if [ -n "$$violations" ]; then \
 	    echo "fk-check: violations in lm10.db:" >&2; \
-	    echo "$$violations" >&2; exit 1; \
+	    echo "$$violations" >&2; \
+	    echo "" >&2; \
+	    echo "Detailed violations by table:" >&2; \
+	    sqlite3 lm10.db "SELECT \"table\", COUNT(*) as violation_count FROM pragma_foreign_key_check() GROUP BY \"table\";" >&2; \
+	    exit 1; \
 	fi
 	@echo "fk-check: lm10.db has no FK violations"
 
