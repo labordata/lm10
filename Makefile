@@ -9,29 +9,6 @@ lm10.db : filing.csv counterparty_contact.csv				\
 	sqlite-utils $@ 'delete from other_address where city is null and name is null and "po_box,_bldg,_room_no,_if_any" is null and state is null and street is null and "zip_code_+_4" is null'
 	sqlite-utils transform $@ filer \
           --pk srNum
-	sqlite-utils transform $@ organization \
-          --drop amended \
-          --drop beginDate \
-          --drop endDate \
-          --drop registerDate \
-          --drop formFiled \
-          --drop receiveDate \
-          --drop srFilerId \
-          --drop amendment \
-          --drop empTrdName \
-          --drop subLabOrg1 \
-          --drop subLabOrg2 \
-          --drop formLink \
-          --drop srNum \
-          --drop repOrgsCnt \
-          --drop paperOrElect \
-          --drop address1 \
-          --drop address2 \
-          --drop zip \
-          --drop attachmentId \
-          --drop fileName \
-          --drop fileDesc \
-          --drop yrCovered
 	sqlite-utils transform $@ filing \
           --pk rptId
 	sqlite-utils convert $@ lm10 period_begin 'r.parsedate(value)'
@@ -82,92 +59,6 @@ lm10.db : filing.csv counterparty_contact.csv				\
           organization rptId filing rptId \
           filing srNum filer srNum
 
-filing.csv : raw_filing.csv
-	cat $< | \
-	    sed -r '1s/[a-z0-9_]+\.//g' > $@
-
-lm10.csv : form.csv
-	cat $< | \
-            sed '1s/.*\._key/rptId/g' | \
-	    sed -r '1s/[a-z0-9_]+\.//g' > $@
-
-
-counterparty_contact.csv : form.activity.counterparty_contact.csv
-	cat $< | \
-            sed '1s/form\.activity\._key/activity_id/g' | \
-	    sed '1s/form\.activity\.counterparty_contact\._key/order/g' | \
-            sed '1s/form\._key/rptId/g' | \
-	    sed -r '1s/[a-z0-9_]+\.//g' > $@
-
-counterparty_organization.csv : form.activity.counterparty_organization.csv 
-	cat $< | \
-            sed '1s/form\.activity\._key/activity_id/g' | \
-	    sed '1s/form\.activity\.counterparty_organization\._key/order/g' | \
-            sed '1s/form\._key/rptId/g' | \
-	    sed -r '1s/[a-z0-9_]+\.//g' > $@
-
-activity.csv : form.activity.csv
-	cat $< | \
-            sed '1s/form\.activity\._key/activity_id/g' | \
-            sed '1s/form\._key/rptId/g' | \
-	    sed -r '1s/[a-z0-9_]+\.//g' > $@
-
-expenditure.csv : form.activity.expenditure.csv
-	cat $< | \
-            sed '1s/form\.activity\._key/activity_id/g' | \
-	    sed '1s/form\.activity\.expenditure\._key/order/g' | \
-            sed '1s/form\._key/rptId/g' | \
-	    sed -r '1s/[a-z0-9_]+\.//g' > $@
-
-other_address.csv : form.other_address.csv
-	cat $< | \
-            sed '1s/form\._key/rptId/g' | \
-	    sed -r '1s/[a-z0-9_]+\.//g' > $@
-
-principal_officer.csv : form.principal_officer.csv
-	cat $< | \
-            sed '1s/form\._key/rptId/g' | \
-	    sed -r '1s/[a-z0-9_]+\.//g' > $@
-
-reportable_activity.csv : form.reportable_activity.csv
-	cat $< | \
-            sed '1s/form\._key/rptId/g' | \
-	    sed -r '1s/[a-z0-9_]+\.//g' > $@
-
-reporting_employer.csv : form.reporting_employer.csv
-	cat $< | \
-            sed '1s/form\._key/rptId/g' | \
-	    sed -r '1s/[a-z0-9_]+\.//g' > $@
-
-signature.csv : form.signature.csv
-	cat $< | \
-            sed '1s/form\._key/rptId/g' | \
-	    sed -r '1s/[a-z0-9_]+\.//g' > $@
-
-form.activity.counterparty_contact.csv form.activity.counterparty_organization.csv form.activity.csv form.activity.expenditure.csv form.csv form.other_address.csv form.principal_officer.csv form.reportable_activity.csv form.reporting_employer.csv form.signature.csv : form.json
-	json-to-multicsv --file $< \
-            --path /:table:form \
-            --path /*/activity_details:table:activity \
-            --path /*/activity_details/*/counterparty_contact:table:counterparty_contact \
-            --path /*/activity_details/*/counterparty_organization:table:counterparty_organization \
-            --path /*/activity_details/*/expenditures:table:expenditure \
-            --path /*/other_address:table:other_address \
-            --path /*/principal_officer:table:principal_officer \
-            --path /*/reportable_activity:table:reportable_activity \
-            --path /*/reporting_employer:table:reporting_employer \
-            --path /*/signatures:table:signature \
-            --path /*/where_records:column
-
-raw_filing.csv : filing.json
-	json-to-multicsv --file filing.json --path /:table:raw_filing
-
-form.json : filing.jl
-	cat $< |  jq -s '.[] | .detailed_form_data + {rptId, formFiled} | select(.file_number)' | jq -s | jq 'INDEX(.rptId) | with_entries(.value |= del(.rptId))' > $@
-
-
-filing.json : filing.jl
-	cat $< | jq -s '.[] | del(.detailed_form_data, .file_headers, .file_urls) | .files = .files[0] | .file_path = .files.path | .file_checksum = .files.checksum | .file_status = .files.status | del(.files)' | jq -s > $@
-
 filer.csv :
 	scrapy crawl filers -L 'WARNING' -O $@
 
@@ -176,3 +67,5 @@ filing.jl :
 
 organization.csv :
 	scrapy crawl organizations -L 'WARNING' -O $@
+
+include common.mk

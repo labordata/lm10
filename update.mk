@@ -1,56 +1,53 @@
 # update.mk — incremental update of lm10.db.
 #
-# Each table has a `scripts/<table>.sql` script that imports its CSV
-# into a temp table and merges into the real table. `update_<table>`
-# phony targets express the FK order. Filer refresh and discovery are
-# always-fresh (depend on FORCE). Intermediate files land in the
-# working dir (all gitignored).
+# Discover filers with new LM-10 activity
+# (scripts/discover_new_filings.py), crawl just those filers with the
+# *_incremental spiders, run the same CSV transforms as the full build
+# (common.mk), and merge each table into the previously released
+# database with scripts/merge_csv.py. The filer table is refreshed on
+# every run. Paper filings and upstream deletions this path can't see
+# are reconciled by the scheduled full rebuild
+# (.github/workflows/full-build.yml).
 #
-# Usage: make -f update.mk
+# Usage: make -f update.mk update
+
+SHELL := /bin/bash
+.SHELLFLAGS := -o pipefail -c
 
 PRIOR_DB_URL ?= https://github.com/labordata/lm10/releases/download/nightly/lm10.db.zip
 
 .DELETE_ON_ERROR:
 
-FORM_CSVS := form.csv form.activity.csv \
-    form.activity.counterparty_contact.csv \
-    form.activity.counterparty_organization.csv \
-    form.activity.expenditure.csv \
-    form.other_address.csv form.principal_officer.csv \
-    form.reportable_activity.csv form.reporting_employer.csv \
-    form.signature.csv
+MERGE_TARGETS := update_filing update_lm10 update_activity \
+    update_counterparty_contact update_counterparty_organization \
+    update_expenditure update_signature update_other_address \
+    update_principal_officer update_reportable_activity \
+    update_reporting_employer update_organization
 
-.PHONY: update polish_db fk-check FORCE \
-        update_filer update_filing update_lm10 update_organization \
-        update_signature update_other_address update_principal_officer \
-        update_reportable_activity update_reporting_employer \
-        update_activity update_counterparty_contact \
-        update_counterparty_organization update_expenditure
+.PHONY: update polish_db fk-check update_filer $(MERGE_TARGETS)
 
 # ============================================================================
 # Entry
 # ============================================================================
 
-# Build the always-fresh inputs first; if sr_nums is non-empty,
-# recursively run the full per-table cascade. Filer always merges.
-# `-o` tells the sub-make to treat these targets as up-to-date so it
-# doesn't re-run them:
-#   sr_nums.txt — FORCE'd, would trigger another bisection
-#   update_filer, update_filing — phony, transitive prereqs of every
-#     update_X in the cascade
-update: lm10.db update_filer update_filing sr_nums.txt
+# Discovery and the filer refresh must be fresh every run, so rebuild
+# them once here, explicitly, rather than marking them FORCE — which
+# would make any direct sub-target invocation re-crawl them mid-pipeline.
+# The merge cascade (and the spider crawls feeding it) only runs when
+# discovery found new filings.
+update: lm10.db
+	rm -f filer.csv sr_nums.txt
+	$(MAKE) -f update.mk -j2 sr_nums.txt filer.csv
+	$(MAKE) -f update.mk update_filer
 	@if [ -s sr_nums.txt ]; then \
-	    $(MAKE) -o sr_nums.txt -o update_filer -o update_filing \
-	        -f update.mk update_lm10 update_organization \
-	        update_signature update_other_address update_principal_officer \
-	        update_reportable_activity update_reporting_employer \
-	        update_activity update_counterparty_contact \
-	        update_counterparty_organization update_expenditure polish_db; \
+	    $(MAKE) -f update.mk $(MERGE_TARGETS) polish_db; \
+	else \
+	    echo "update: no new filings discovered; only the filer table was refreshed" >&2; \
 	fi
 	@$(MAKE) -f update.mk fk-check
 
 # ============================================================================
-# Validation helpers
+# Validation
 # ============================================================================
 
 fk-check:
@@ -76,145 +73,72 @@ polish_db:
 	    'r.parsedate(value) if value.lower() != "none" else None'
 	sqlite-utils convert lm10.db organization promiseDate \
 	    'r.parsedate(value) if value.lower() not in {"not available", "none"} else None'
+	# drop staging tables a pre-merge_csv.py version of this pipeline
+	# left in the published database
+	for t in $$(sqlite3 lm10.db "select name from sqlite_master where type = 'table' and name like 'raw_%'"); do \
+	    sqlite3 lm10.db "drop table \"$$t\""; \
+	done
 
 # ============================================================================
-# Per-table merges (topological, leaves before roots)
+# Per-table merges
 # ============================================================================
 
-update_counterparty_contact: counterparty_contact.csv update_activity
-	cat $< | sqlite3 lm10.db -init scripts/counterparty_contact.sql -bail
+# Fields the full build's sqlite-utils transforms drop, mirrored here.
+MERGE_FLAGS_filer := --replace
+MERGE_FLAGS_filing := --ignore _key
+MERGE_FLAGS_signature := --ignore _key
+MERGE_FLAGS_other_address := --ignore _key
+MERGE_FLAGS_principal_officer := --ignore _key
+MERGE_FLAGS_reportable_activity := --ignore _key
+MERGE_FLAGS_reporting_employer := --ignore _key
+MERGE_FLAGS_counterparty_contact := --ignore order
+MERGE_FLAGS_counterparty_organization := --ignore order
+MERGE_FLAGS_expenditure := --ignore order
 
-update_counterparty_organization: counterparty_organization.csv update_activity
-	cat $< | sqlite3 lm10.db -init scripts/counterparty_organization.sql -bail
+$(MERGE_TARGETS) update_filer: update_%: %.csv | lm10.db
+	python scripts/merge_csv.py lm10.db $* $(MERGE_FLAGS_$*) < $<
 
-update_expenditure: expenditure.csv update_activity
-	cat $< | sqlite3 lm10.db -init scripts/expenditure.sql -bail
-
-update_activity: activity.csv update_filing
-	cat $< | sqlite3 lm10.db -init scripts/activity.sql -bail
-
-update_lm10: lm10.csv update_filing
-	cat $< | sqlite3 lm10.db -init scripts/lm10.sql -bail
-
-update_organization: organization.csv update_filing
-	cat $< | sqlite3 lm10.db -init scripts/organization.sql -bail
-
-update_signature: signature.csv update_filing
-	cat $< | sqlite3 lm10.db -init scripts/signature.sql -bail
-
-update_other_address: other_address.csv update_filing
-	cat $< | sqlite3 lm10.db -init scripts/other_address.sql -bail
-
-update_principal_officer: principal_officer.csv update_filing
-	cat $< | sqlite3 lm10.db -init scripts/principal_officer.sql -bail
-
-update_reportable_activity: reportable_activity.csv update_filing
-	cat $< | sqlite3 lm10.db -init scripts/reportable_activity.sql -bail
-
-update_reporting_employer: reporting_employer.csv update_filing
-	cat $< | sqlite3 lm10.db -init scripts/reporting_employer.sql -bail
-
-update_filing: filing.csv update_filer
-	cat $< | sqlite3 lm10.db -init scripts/filing.sql -bail
-
-update_filer: filer.csv | lm10.db
-	@if [ "$$(wc -l < $<)" -gt 1 ]; then \
-	    cat $< | sqlite3 lm10.db -init scripts/filer.sql -bail; \
-	else \
-	    echo "update_filer: $< empty (spider produced no rows); keeping existing filer table" >&2; \
-	fi
+# FK order: filing references filer; the lm10 merge clears the
+# form-derived child tables, so it must precede their merges; activity
+# must precede the children that resolve ordinals against its ids;
+# organization needs filing's rptIds for its orphan filter.
+update_filing: update_filer
+update_lm10: update_filing
+update_activity: update_lm10
+update_counterparty_contact update_counterparty_organization update_expenditure: update_activity
+update_signature update_other_address update_principal_officer \
+    update_reportable_activity update_reporting_employer: update_lm10
+update_organization: update_filing
 
 # ============================================================================
-# CSV pipeline (consumers before producers)
+# Spider outputs
 # ============================================================================
 
-# Per-table CSVs (consumed by update_<table>): sed renames from the
-# json-to-multicsv output.
-
-filing.csv: raw_filing.csv
-	sed -r '1s/[a-z0-9_]+\.//g' $< > $@
-
-lm10.csv: form.csv
-	sed '1s/.*\._key/rptId/g' $< | sed -r '1s/[a-z0-9_]+\.//g' > $@
-
-activity.csv: form.activity.csv
-	sed '1s/form\.activity\._key/activity_id/g' $< \
-	    | sed '1s/form\._key/rptId/g' \
-	    | sed -r '1s/[a-z0-9_]+\.//g' > $@
-
-counterparty_contact.csv: form.activity.counterparty_contact.csv
-	sed '1s/form\.activity\._key/activity_id/g' $< \
-	    | sed '1s/form\.activity\.counterparty_contact\._key/order/g' \
-	    | sed '1s/form\._key/rptId/g' \
-	    | sed -r '1s/[a-z0-9_]+\.//g' > $@
-
-counterparty_organization.csv: form.activity.counterparty_organization.csv
-	sed '1s/form\.activity\._key/activity_id/g' $< \
-	    | sed '1s/form\.activity\.counterparty_organization\._key/order/g' \
-	    | sed '1s/form\._key/rptId/g' \
-	    | sed -r '1s/[a-z0-9_]+\.//g' > $@
-
-expenditure.csv: form.activity.expenditure.csv
-	sed '1s/form\.activity\._key/activity_id/g' $< \
-	    | sed '1s/form\.activity\.expenditure\._key/order/g' \
-	    | sed '1s/form\._key/rptId/g' \
-	    | sed -r '1s/[a-z0-9_]+\.//g' > $@
-
-# Pattern rule for simple per-rptId children: form.X.csv → X.csv.
-# (signature, other_address, principal_officer, reportable_activity,
-#  reporting_employer.) Explicit rules above take precedence for tables
-# that need more renames.
-%.csv: form.%.csv
-	sed '1s/form\._key/rptId/g' $< | sed -r '1s/[a-z0-9_]+\.//g' > $@
-
-# json-to-multicsv emits all FORM_CSVS from one invocation.
-raw_filing.csv: filing.json
-	json-to-multicsv --file filing.json --path /:table:raw_filing
-
-$(FORM_CSVS) &: form.json
-	json-to-multicsv --file form.json \
-	    --path /:table:form \
-	    --path /*/activity_details:table:activity \
-	    --path /*/activity_details/*/counterparty_contact:table:counterparty_contact \
-	    --path /*/activity_details/*/counterparty_organization:table:counterparty_organization \
-	    --path /*/activity_details/*/expenditures:table:expenditure \
-	    --path /*/other_address:table:other_address \
-	    --path /*/principal_officer:table:principal_officer \
-	    --path /*/reportable_activity:table:reportable_activity \
-	    --path /*/reporting_employer:table:reporting_employer \
-	    --path /*/signatures:table:signature \
-	    --path /*/where_records:column
-
-# jq fan-out from the spider's filing.jl.
-filing.json: filing.jl
-	jq -s '.[] | del(.detailed_form_data, .file_headers, .file_urls) | .files = .files[0] | .file_path = .files.path | .file_checksum = .files.checksum | .file_status = .files.status | del(.files)' $< \
-	    | jq -s > $@
-
-form.json: filing.jl
-	jq -s '.[] | .detailed_form_data + {rptId, formFiled} | select(.file_number)' $< \
-	    | jq -s \
-	    | jq 'INDEX(.rptId) | with_entries(.value |= del(.rptId))' > $@
-
-# Spider outputs (only invoked when sr_nums.txt is non-empty; the
-# `update` recipe guards this).
+# Every discovered filer was discovered FROM a filing, so its detail
+# feed must yield at least one item; fewer items than filers means the
+# crawl was blocked (OLMS 403s), not that there was nothing to fetch.
 filing.jl: sr_nums.txt
-	scrapy crawl filings_incremental -L WARNING -a sr_nums_file=$< -O $@
+	scrapy crawl filings_incremental -L INFO -a sr_nums_file=$< -O $@
+	@[ "$$(wc -l < $@)" -ge "$$(wc -l < $<)" ] || \
+	    (echo "ERROR: $@ has fewer filings than discovered filers; crawl was likely blocked" >&2 && exit 1)
 
 organization.csv: sr_nums.txt
-	scrapy crawl organizations_incremental -L WARNING -a sr_nums_file=$< -O $@
+	scrapy crawl organizations_incremental -L INFO -a sr_nums_file=$< -O $@
 
-# Always-fresh inputs.
-sr_nums.txt: FORCE lm10.db
+sr_nums.txt: | lm10.db
 	python scripts/discover_new_filings.py lm10.db > $@
 
-filer.csv: FORCE
+# The filer list servlet always has thousands of filers; an empty crawl
+# means something is broken (e.g. OLMS blocking us), not an empty list.
+filer.csv:
 	scrapy crawl filers -L INFO -O $@
+	@[ "$$(wc -l < $@)" -gt 1 ] || (echo "ERROR: $@ is empty" >&2 && exit 1)
 
 # Bootstrap. Fetch the prior nightly if no local lm10.db; fails fast
-# on download error (recovery is a human-triggered `make lm10.db`).
+# on download error (recovery is a human-triggered full rebuild).
 lm10.db:
 	curl -fsSL -o prev.zip $(PRIOR_DB_URL)
 	unzip -o prev.zip lm10.db
 	rm -f prev.zip
 
-FORCE:
+include common.mk

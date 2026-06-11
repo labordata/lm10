@@ -1,6 +1,7 @@
 from scrapy import Spider
 
 from lm10._http import form_request
+from lm10.spiders.incremental import SrNumSpiderMixin
 
 
 class Organizations(Spider):
@@ -55,17 +56,14 @@ class Organizations(Spider):
             callback=self.parse_filings,
         )
 
-    def _iter_filings(self, response):
-        return response.json()["detail"]
-
     def parse_filings(self, response):
         """
-        @url https://olmsapps.dol.gov/olpdr/GetLM2021FilerDetailServlet
+        @url https://olmsapps.dol.gov/olpdr/GetLM10FilerDetailServlet
         @filings_form
         @returns request 1
         """
 
-        for filing in self._iter_filings(response):
+        for filing in response.json()["detail"]:
             yield form_request(
                 "https://olmsapps.dol.gov/olpdr/GetAdditionalEmpsLM10Servlet",
                 formdata={"rptId": str(filing["rptId"])},
@@ -82,41 +80,10 @@ class Organizations(Spider):
             yield organization
 
 
-class IncrementalOrganizations(Organizations):
-    """Fetch additional-employer rows for new filings only.
+class IncrementalOrganizations(SrNumSpiderMixin, Organizations):
+    """Fetch additional-employer rows for a specific list of filers.
 
-    Inputs match `IncrementalFilings`: list of srNums plus optional
-    max_known_rpt_id to skip already-known rptIds. For each new filing,
+    Inputs match `IncrementalFilings`. For each of the filer's filings,
     one POST to GetAdditionalEmpsLM10Servlet."""
 
     name = "organizations_incremental"
-
-    def __init__(
-        self, sr_nums=None, sr_nums_file=None, max_known_rpt_id=None, *args, **kwargs
-    ):
-        super().__init__(*args, **kwargs)
-        nums = []
-        if sr_nums:
-            nums.extend(sr_nums.split(","))
-        if sr_nums_file:
-            with open(sr_nums_file) as f:
-                nums.extend(f.read().split())
-        if not nums:
-            raise ValueError(
-                "pass either -a sr_nums=42,556,1213 or -a sr_nums_file=/path/to/file"
-            )
-        self.sr_nums = sorted({int(n) for n in nums if n.strip()})
-        self.max_known_rpt_id = int(max_known_rpt_id) if max_known_rpt_id else None
-
-    async def start(self):
-        for sr in self.sr_nums:
-            yield self._detail_request(sr)
-
-    def _iter_filings(self, response):
-        for filing in response.json()["detail"]:
-            if (
-                self.max_known_rpt_id is not None
-                and filing["rptId"] <= self.max_known_rpt_id
-            ):
-                continue
-            yield filing

@@ -12,9 +12,14 @@ BOT_NAME = "lm10"
 SPIDER_MODULES = ["lm10.spiders"]
 NEWSPIDER_MODULE = "lm10.spiders"
 
+SPIDER_CONTRACTS = {
+    "lm10.contracts.FilersFormContract": 10,
+    "lm10.contracts.FilingsFormContract": 11,
+    "lm10.contracts.OrganizationFormContract": 12,
+}
 
 # Crawl responsibly by identifying yourself (and your website) on the user-agent
-# USER_AGENT = "lm10 (+http://www.yourdomain.com)"
+USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
 # Obey robots.txt rules
 ROBOTSTXT_OBEY = True
@@ -50,9 +55,9 @@ ROBOTSTXT_OBEY = True
 
 # Enable or disable downloader middlewares
 # See https://docs.scrapy.org/en/latest/topics/downloader-middleware.html
-# DOWNLOADER_MIDDLEWARES = {
-#    "lm10.middlewares.Lm10DownloaderMiddleware": 543,
-# }
+DOWNLOADER_MIDDLEWARES = {
+    "lm10.middlewares.BlockingBackoffMiddleware": 560,
+}
 
 # Enable or disable extensions
 # See https://docs.scrapy.org/en/latest/topics/extensions.html
@@ -96,17 +101,26 @@ FEED_EXPORT_ENCODING = "utf-8"
 MISMATCHED_FILER_RETRY = 10
 
 # DOL's WAF (AWS ELB) 403s above a few req/s sustained; AutoThrottle adapts to
-# the server's latency to stay under the limit.
+# the server's latency to stay under the limit, and
+# BlockingBackoffMiddleware handles any 403/429 that still gets through
+# (exponential slot backoff + retry, abort when persistently blocked).
+# 403 is deliberately NOT in RETRY_HTTP_CODES: the stock RetryMiddleware
+# retries immediately with no backoff, which just re-spends the request
+# against the rate limiter.
 AUTOTHROTTLE_ENABLED = True
 AUTOTHROTTLE_START_DELAY = 1.0
 AUTOTHROTTLE_MAX_DELAY = 30.0
 AUTOTHROTTLE_TARGET_CONCURRENCY = 4.0
-CONCURRENT_REQUESTS_PER_DOMAIN = 8
-RETRY_HTTP_CODES = [500, 502, 503, 504, 522, 524, 408, 429, 403]
+CONCURRENT_REQUESTS_PER_DOMAIN = 4
 
 # Cache responses so the two incremental spiders can share the slow
 # GetLM10FilerDetailServlet detail responses. Harmless for full crawls
-# (every URL is unique anyway).
+# (every URL is unique anyway). The shared storage class de-namespaces
+# the cache (stock scrapy keys it by spider name, which defeated the
+# sharing); error responses are not cached, so a 403 can't satisfy its
+# own retry or poison the later spider.
 HTTPCACHE_ENABLED = True
 HTTPCACHE_EXPIRATION_SECS = 3600
 HTTPCACHE_DIR = ".scrapy/httpcache"
+HTTPCACHE_STORAGE = "lm10.httpcache.SharedFilesystemCacheStorage"
+HTTPCACHE_IGNORE_HTTP_CODES = [400, 403, 404, 429, 500, 502, 503, 504]

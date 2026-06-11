@@ -5,6 +5,7 @@ from scrapy import Spider
 from scrapy.http import Request
 
 from lm10._http import form_request
+from lm10.spiders.incremental import SrNumSpiderMixin
 
 
 class LM20(Spider):
@@ -51,9 +52,6 @@ class LM20(Spider):
             callback=self.parse_filings,
         )
 
-    def _iter_filings(self, response):
-        return response.json()["detail"]
-
     def parse_filings(self, response):
         """
         @url https://olmsapps.dol.gov/olpdr/GetLM10FilerDetailServlet
@@ -61,7 +59,7 @@ class LM20(Spider):
         @returns items 2
         @scrapes amended
         """
-        for filing in self._iter_filings(response):
+        for filing in response.json()["detail"]:
             del filing["attachmentId"]
             del filing["fileName"]
             del filing["fileDesc"]
@@ -115,10 +113,13 @@ class LM20(Spider):
         # baffling, sometimes when you request some resources
         # it returns html and sometime it returns a pdf
 
-        m = Message()
-        m["content-type"] = response.headers.get("Content-Type").decode()
-
-        content_type, _ = m.get_params()[0]
+        content_type_header = response.headers.get("Content-Type")
+        if content_type_header:
+            m = Message()
+            m["content-type"] = content_type_header.decode()
+            content_type, _ = m.get_params()[0]
+        else:
+            content_type = None
 
         max_attempts = self.settings.getint("MISMATCHED_FILER_RETRY", 2)
 
@@ -151,43 +152,13 @@ class LM20(Spider):
             )
 
 
-class IncrementalFilings(LM20):
+class IncrementalFilings(SrNumSpiderMixin, LM20):
     """Crawl filings for a specific list of filers (by srNum), skipping the
     list endpoint entirely. Inputs come from `scripts/discover_new_filings.py`,
     which forward-probes the rptId space to find new filings since the last
     sync."""
 
     name = "filings_incremental"
-
-    def __init__(
-        self, sr_nums=None, sr_nums_file=None, max_known_rpt_id=None, *args, **kwargs
-    ):
-        super().__init__(*args, **kwargs)
-        nums = []
-        if sr_nums:
-            nums.extend(sr_nums.split(","))
-        if sr_nums_file:
-            with open(sr_nums_file) as f:
-                nums.extend(f.read().split())
-        if not nums:
-            raise ValueError(
-                "pass either -a sr_nums=42,556,1213 or -a sr_nums_file=/path/to/file"
-            )
-        self.sr_nums = sorted({int(n) for n in nums if n.strip()})
-        self.max_known_rpt_id = int(max_known_rpt_id) if max_known_rpt_id else None
-
-    async def start(self):
-        for sr in self.sr_nums:
-            yield self._detail_request(sr)
-
-    def _iter_filings(self, response):
-        for filing in response.json()["detail"]:
-            if (
-                self.max_known_rpt_id is not None
-                and filing["rptId"] <= self.max_known_rpt_id
-            ):
-                continue
-            yield filing
 
 
 class LM10Report:
