@@ -27,3 +27,5 @@ new_organization.csv
 sr_nums.txt
 reports/
 .scrapy/
+__pycache__/
+*.pyc
