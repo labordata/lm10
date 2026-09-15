@@ -1,7 +1,7 @@
 """Discover filers (srNums) with new LM-10 activity since lm10.db's
 max LM-10 rptId.
 
-Usage: python scripts/discover_new_filings.py lm20.db
+Usage: python scripts/discover_new_filings.py lm10.db
 """
 
 from olms.discover import DiscoveryConfig, main
