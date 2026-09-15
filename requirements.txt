@@ -3,3 +3,4 @@ python-dateutil
 https://github.com/LuighiV/csvs-to-sqlite/archive/refs/heads/main.zip
 sqlite-utils
 json-to-multicsv
+https://github.com/labordata/olms/archive/refs/heads/main.zip
