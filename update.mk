@@ -84,7 +84,7 @@ polish_db:
 # ============================================================================
 
 # Fields the full build's sqlite-utils transforms drop, mirrored here.
-MERGE_FLAGS_filer := --replace
+MERGE_FLAGS_filer := --replace --ignore lm10VisualizationReceiveTimesByYear --ignore lm10VisualizationRptIdsByYear --ignore lm10VisualizationYears
 MERGE_FLAGS_filing := --ignore _key
 MERGE_FLAGS_signature := --ignore _key
 MERGE_FLAGS_other_address := --ignore _key
